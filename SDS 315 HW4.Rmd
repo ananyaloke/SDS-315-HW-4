@@ -27,7 +27,7 @@ library(RColorBrewer)
 library(mosaic)
 
 
-#reading in libraries
+#reading in datasets
 let_freq = read_csv("letter_frequencies.csv")
 
 
@@ -136,42 +136,45 @@ p_val3 = pchisq(chi_squared_stat1, df = 4, lower.tail = FALSE)
 
 #read the sentences
 sentences = readLines("brown_sentences.txt", warn = FALSE)
+sentences_df <- data.frame(sentence = sentences, stringsAsFactors = FALSE)
 
-english_freq = setNames(let_freq$Probability, let_freq$Letter)  # Convert data frame to named vector
 
 
-#make a function so we can use for each sentence
-process_sentence = function(sentence) {
-  #preprocess the text
-  sentence = toupper(gsub("[^A-Z]", "", sentence))  # Remove non-letters, convert to uppercase
-  sentence_length = nchar(sentence)
+calculate_chi_squared = function(sentence, freq_table) {
   
-  #calculate letter count
-  observed_counts = table(strsplit(sentence, "")[[1]])
+  # Ensure letter frequencies are normalized and sum to 1
+  freq_table$Probability = freq_table$Probability / sum(freq_table$Probability)
   
-  all_letters = setNames(rep(0, length(english_freq)), names(english_freq))
+  # Remove non-letters and convert to uppercase
+  clean_sentence = gsub("[^A-Za-z]", "", sentence)
+  clean_sentence = toupper(clean_sentence)
   
-  observed_counts = as.numeric(observed_counts)
-  names(observed_counts) = names(observed_counts)
+  # Count the occurrences of each letter in the sentence
+  observed_freq = table(factor(strsplit(clean_sentence, "")[[1]], levels = freq_table$Letter))
   
-  all_letters[names(observed_counts)] = observed_counts
+  # Calculate expected counts
+  total_letters = sum(observed_freq)
+  expected_freq = total_letters * freq_table$Probability
   
-  #compare with expected count
-  expected_counts = sentence_length * english_freq
+  # Chi-squared statistic
+  chi_squared_stat = sum((observed_freq - expected_freq)^2 / expected_freq)
   
-  #compute the chi-squared statistic
-  chi_squared = sum((all_letters - expected_counts)^2 / expected_counts, na.rm = TRUE)
-  return(chi_squared)
+  return(chi_squared_stat)
 }
 
 
 #compile the distribution
-chi_squared_values = sapply(sentences, process_sentence)
+for (i in 1:length(sentences_df$sentence)) {
+  sentences_df$chi_squared_val[i] = calculate_chi_squared(sentences_df$sentence[i], let_freq)
+}
+
+
 
 #view the distribution
-hist(chi_squared_values, main="Chi-Squared Distribution of Sentences", xlab="Chi-Squared Statistic", breaks=30, col = "lightpink")
-
-
+ggplot(sentences_df, aes(x = chi_squared_val)) +   
+  geom_histogram (bin = 30, col = "firebrick4", fill = "lightpink") +
+  labs(title = "Chi-Square Distribution of Sentences", x = "Chi-Square Value", y = "Frequency") + 
+  theme_classic()
 ```
 
 #### The histogram above shows the distribution of the chi squared statistic for the sentences in the brown_sentences.txt file. 
@@ -194,27 +197,24 @@ test_sentences <- c(
   "Despite the challenges faced during the project, the team worked tirelessly to ensure its successful completion, resulting in a product that exceeded everyone’s expectations."
 )
 
-#function for calculating p-value
-calculate_p_value <- function(chi_squared_statistic, reference_chi_squared_values) {
-  p_value <- mean(reference_chi_squared_values >= chi_squared_statistic)
-  return(p_value)
+test_sentences_df <- data.frame(sentence = test_sentences)
+
+for (i in 1:length(test_sentences_df$sentence)) {
+  test_sentences_df$chi_squared_val[i] = calculate_chi_squared(test_sentences_df$sentence[i], let_freq)
+  test_sentences_df$p_val[i] = mean(sentences_df$chi_squared_val >= test_sentences_df$chi_squared_val[i])
 }
 
-test_chi_squared_values <- sapply(test_sentences, process_sentence)
-
-p_values <- sapply(test_chi_squared_values, calculate_p_value, reference_chi_squared_values = chi_squared_values)
-p_value_table <- data.frame(Sentence = test_sentences, P_Value = round(p_values, 3))
-p_value_table <- data.frame(Sentence = p_value_table$Sentence, P_Value = p_value_table$P_Value)
 
 
-styled_table <- kbl(p_value_table, col.names = c("Sentence", "P-Value")) %>%
-  kable_styling(bootstrap_options = "striped", full_width = F, position = "left") %>%
-  column_spec(1, width = "15cm") %>%
-  row_spec(0, bold = TRUE)
+styled_table <- kbl(test_sentences_df, col.names = c("Sentence", "Chi-Squared Value", "P-Value"), format = "latex", booktabs = TRUE) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE, position = "left") %>%
+  column_spec(1, width = "9cm") %>%  # Adjust column width to fit within page margins
+  column_spec(2, width = "3cm") %>%  # Set width for Chi-Squared Value column
+  column_spec(3, width = "3cm") %>% # Set width for P-Value column
+  row_spec(0, bold = TRUE)   # Make header row bold
+  #kable_styling(latex_options = c("hold_position"))  # Prevent floating issues in PDF
 
-# Ensure word wrapping for long text in LaTeX
 styled_table
-
 
 
 ```
@@ -224,6 +224,6 @@ styled_table
 "Feeling vexed after an arduous and zany day at work, she hoped for a peaceful and quiet evening at home, cozying up after a quick dinner with some TV, or maybe a book on her upcoming visit to Auckland."
 
 
-#### This is because the p-value of this sentence is the lowest/farthest from 1 (0.171) which leads me to believe that it was not written by a human as is least follows the “typical” English letter distribution.
+#### This is because the p-value is the smallest/farthest from 1 (0.0087761) and the sentence has an extremely high chi-squared value comparatively. This leads me to believe that it was not written by a human as is least follows the “typical” English letter distribution.
 
 
